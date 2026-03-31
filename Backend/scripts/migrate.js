@@ -124,6 +124,54 @@ const pool = new Pool({
       )
     `);
 
+        // Create question_performance table (ML: per-question tracking)
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS question_performance (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        quiz_result_id INTEGER REFERENCES quiz_results(id) ON DELETE CASCADE,
+        question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+        is_correct BOOLEAN NOT NULL,
+        time_taken INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+        // Create user_level_profiles table (ML: adaptive level per user)
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS user_level_profiles (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+        current_level VARCHAR(20) DEFAULT 'medium',
+        total_quizzes INTEGER DEFAULT 0,
+        avg_accuracy FLOAT DEFAULT 0,
+        avg_speed_score FLOAT DEFAULT 0,
+        ml_score FLOAT DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+        await client.query(`
+      DO $$
+      BEGIN
+        BEGIN
+          ALTER TABLE quiz_results ADD COLUMN time_taken_seconds INTEGER DEFAULT 0;
+        EXCEPTION
+          WHEN duplicate_column THEN RAISE NOTICE 'column time_taken_seconds already exists in quiz_results.';
+        END;
+        BEGIN
+          ALTER TABLE quiz_results ADD COLUMN ml_predicted_level VARCHAR(20) DEFAULT NULL;
+        EXCEPTION
+          WHEN duplicate_column THEN RAISE NOTICE 'column ml_predicted_level already exists in quiz_results.';
+        END;
+        BEGIN
+          ALTER TABLE quiz_results ADD COLUMN ml_score FLOAT DEFAULT NULL;
+        EXCEPTION
+          WHEN duplicate_column THEN RAISE NOTICE 'column ml_score already exists in quiz_results.';
+        END;
+      END $$;
+    `);
+
         // Create indexes for better performance
         await client.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
         await client.query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
@@ -147,6 +195,10 @@ const pool = new Pool({
         await client.query('CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating)');
         await client.query('CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at)');
 
+        await client.query('CREATE INDEX IF NOT EXISTS idx_question_perf_user_id ON question_performance(user_id)');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_question_perf_quiz_result_id ON question_performance(quiz_result_id)');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_user_level_profiles_user_id ON user_level_profiles(user_id)');
+
         // Commit transaction
         await client.query('COMMIT');
 
@@ -158,6 +210,8 @@ const pool = new Pool({
         console.log('  - questions');
         console.log('  - quiz_results');
         console.log('  - feedback');
+        console.log('  - question_performance (ML)');
+        console.log('  - user_level_profiles (ML)');
         console.log('');
         console.log('Indexes created for better performance.');
 

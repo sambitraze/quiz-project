@@ -216,4 +216,27 @@ export const feedbackAPI = {
     }
 };
 
+// ML / Adaptive Learning API calls
+export const mlAPI = {
+    getUserProfile: async (userId) => {
+        const response = await api.get(`/ml/profile/${userId}`);
+        return response.data;
+    },
+
+    getRecommendations: async (userId) => {
+        const response = await api.get(`/ml/recommendations/${userId}`);
+        return response.data;
+    },
+
+    getResultSummary: async (resultId) => {
+        const response = await api.get(`/ml/summary/${resultId}`);
+        return response.data;
+    },
+
+    getAdminOverview: async () => {
+        const response = await api.get('/ml/admin/overview');
+        return response.data;
+    },
+};
+
 export default api;

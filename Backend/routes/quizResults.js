@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin, requireAdminOrOwner } = require('../middleware/auth');
 const { validate, quizResultSchema } = require('../middleware/validation');
+const { predictLevel, updateUserProfile } = require('../services/mlService');
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ router.post('/', authenticateToken, validate(quizResultSchema), async (req, res)
     const client = await db.getClient();
 
     try {
-        const { quiz_id, answers } = req.body;
+        const { quiz_id, answers, question_timings = [], total_time_seconds = 0 } = req.body;
         const user_id = req.user.id;
 
         await client.query('BEGIN');
@@ -81,17 +82,65 @@ router.post('/', authenticateToken, validate(quizResultSchema), async (req, res)
             }
         });
 
-        // Save quiz result
+        // ML: predict level from this attempt
+        const correctAnswers = questions.filter(q => q.id && answerMap[q.id] === q.correct_answer).length;
+        const timings = question_timings.length > 0 ? question_timings : [];
+        const mlResult = predictLevel({
+            correctAnswers,
+            totalQuestions: questions.filter(q => q.id).length,
+            totalTimeTaken: total_time_seconds,
+            questionTimings: timings,
+        });
+
+        // Save quiz result (with ML columns)
         const resultInsert = await client.query(
-            `INSERT INTO quiz_results (user_id, quiz_id, score, total_points, answers, completed_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       RETURNING id, user_id, quiz_id, score, total_points, answers, completed_at`,
-            [user_id, quiz_id, score, totalPoints, JSON.stringify(answers)]
+            `INSERT INTO quiz_results (user_id, quiz_id, score, total_points, answers, time_taken_seconds, ml_predicted_level, ml_score, completed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       RETURNING id, user_id, quiz_id, score, total_points, answers, time_taken_seconds, ml_predicted_level, ml_score, completed_at`,
+            [user_id, quiz_id, score, totalPoints, JSON.stringify(answers), total_time_seconds, mlResult.level, mlResult.mlScore]
+        );
+
+        const savedResult = resultInsert.rows[0];
+
+        // Save per-question performance rows for ML tracking
+        if (question_timings.length > 0) {
+            for (const answer of answers) {
+                const question = questions.find(q => q.id === answer.question_id);
+                if (!question) continue;
+                const timing = question_timings.find(t => t.question_id === answer.question_id);
+                const timeTaken = timing ? timing.time_taken : 0;
+                const isCorrect = answer.selected_answer === question.correct_answer;
+                await client.query(
+                    `INSERT INTO question_performance (user_id, quiz_result_id, question_id, is_correct, time_taken)
+                     VALUES ($1, $2, $3, $4, $5)
+                     ON CONFLICT DO NOTHING`,
+                    [user_id, savedResult.id, answer.question_id, isCorrect, timeTaken]
+                );
+            }
+        }
+
+        // Update rolling user level profile
+        const existingProfile = await client.query(
+            'SELECT * FROM user_level_profiles WHERE user_id = $1',
+            [user_id]
+        );
+        const updatedProfile = updateUserProfile(existingProfile.rows[0] || null, mlResult);
+        await client.query(
+            `INSERT INTO user_level_profiles (user_id, current_level, total_quizzes, avg_accuracy, avg_speed_score, ml_score, updated_at)
+             VALUES ($1, $2, 1, $3, $4, $5, NOW())
+             ON CONFLICT (user_id) DO UPDATE SET
+               current_level = $2,
+               total_quizzes = user_level_profiles.total_quizzes + 1,
+               avg_accuracy = $3,
+               avg_speed_score = $4,
+               ml_score = $5,
+               updated_at = NOW()`,
+            [user_id, updatedProfile.currentLevel, updatedProfile.avgAccuracy, updatedProfile.avgSpeedScore, updatedProfile.avgMlScore]
         );
 
         await client.query('COMMIT');
 
-        const result = resultInsert.rows[0];
+        const result = savedResult;
 
         res.status(201).json({
             success: true,
@@ -101,6 +150,14 @@ router.post('/', authenticateToken, validate(quizResultSchema), async (req, res)
                     ...result,
                     quiz_title: quiz.title,
                     percentage: totalPoints > 0 ? Math.round((score / totalPoints) * 100) : 0
+                },
+                ml: {
+                    predicted_level: mlResult.level,
+                    ml_score: mlResult.mlScore,
+                    accuracy: mlResult.accuracy,
+                    speed_score: mlResult.speedScore,
+                    breakdown: mlResult.breakdown,
+                    user_level: updatedProfile.currentLevel,
                 }
             }
         });

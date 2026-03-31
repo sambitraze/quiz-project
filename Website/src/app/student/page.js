@@ -4,14 +4,16 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { lessonsAPI, quizzesAPI, quizResultsAPI } from '@/lib/api';
-import { BookOpen, Award, TrendingUp, Clock, Play, Trophy, Star, Target, CheckCircle, AlertCircle } from 'lucide-react';
+import { lessonsAPI, quizzesAPI, quizResultsAPI, mlAPI } from '@/lib/api';
+import { BookOpen, Award, TrendingUp, Clock, Play, Trophy, Star, Target, CheckCircle, AlertCircle, Brain, Zap } from 'lucide-react';
+import Cookies from 'js-cookie';
 
 export default function StudentDashboard() {
     const [lessons, setLessons] = useState([]);
     const [quizzes, setQuizzes] = useState([]);
     const [stats, setStats] = useState(null);
     const [recentResults, setRecentResults] = useState([]);
+    const [mlProfile, setMlProfile] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -25,6 +27,15 @@ export default function StudentDashboard() {
                 quizzesAPI.getAllQuizzes(1, 6),
                 quizResultsAPI.getMyResults(1, 50) // Get more results for better stats
             ]);
+
+            // Fetch ML profile separately (non-blocking)
+            try {
+                const user = JSON.parse(Cookies.get('user') || '{}');
+                if (user.id) {
+                    const profileRes = await mlAPI.getUserProfile(user.id);
+                    setMlProfile(profileRes?.data?.profile || null);
+                }
+            } catch (_) { /* ML profile is optional */ }
 
             console.log('Dashboard responses:', { lessonsResponse, quizzesResponse, statsResponse });
 
@@ -158,13 +169,18 @@ export default function StudentDashboard() {
                             <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500">
                                 <div className="flex items-center">
                                     <div className="flex-shrink-0">
-                                        <TrendingUp className="h-8 w-8 text-purple-600" />
+                                        <Brain className="h-8 w-8 text-purple-600" />
                                     </div>
                                     <div className="ml-4">
-                                        <p className="text-sm font-medium text-gray-500">Progress</p>
-                                        <p className="text-2xl font-semibold text-gray-900">
-                                            {stats.total_quizzes_taken ? `${Math.min(100, stats.total_quizzes_taken * 10)}%` : '0%'}
+                                        <p className="text-sm font-medium text-gray-500">AI Level</p>
+                                        <p className="text-2xl font-semibold text-gray-900 capitalize">
+                                            {mlProfile ? mlProfile.current_level : '—'}
                                         </p>
+                                        {mlProfile && (
+                                            <p className="text-xs text-purple-600 mt-0.5">
+                                                Score: {(mlProfile.ml_score * 100).toFixed(1)}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             </div>

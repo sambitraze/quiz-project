@@ -22,6 +22,10 @@ export default function TakeQuiz() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [quizStarted, setQuizStarted] = useState(false);
+    // ML timing tracking
+    const [questionTimings, setQuestionTimings] = useState({});
+    const [questionStartRef, setQuestionStartRef] = useState(Date.now());
+    const [quizStartTime, setQuizStartTime] = useState(null);
 
     useEffect(() => {
         if (quizId) {
@@ -66,7 +70,21 @@ export default function TakeQuiz() {
 
     const startQuiz = () => {
         setQuizStarted(true);
+        setQuizStartTime(Date.now());
+        setQuestionStartRef(Date.now());
         toast.success('Quiz started! Good luck!');
+    };
+
+    // Record time spent on the current question before moving away
+    const recordCurrentQuestionTime = () => {
+        const currentQ = questions[currentQuestion];
+        if (!currentQ) return;
+        const elapsed = Math.round((Date.now() - questionStartRef) / 1000);
+        setQuestionTimings(prev => ({
+            ...prev,
+            [currentQ.id]: (prev[currentQ.id] || 0) + elapsed,
+        }));
+        setQuestionStartRef(Date.now());
     };
 
     const handleAnswerSelect = (questionId, optionId) => {
@@ -78,12 +96,16 @@ export default function TakeQuiz() {
 
     const goToQuestion = (index) => {
         if (index >= 0 && index < questions.length) {
+            recordCurrentQuestionTime();
             setCurrentQuestion(index);
         }
     };
 
     const submitQuiz = async () => {
         if (submitting) return;
+
+        // Record timing for the last question being viewed
+        recordCurrentQuestionTime();
 
         setSubmitting(true);
         try {
@@ -106,9 +128,19 @@ export default function TakeQuiz() {
                 })
                 .filter(answer => answer !== null);
 
+            // Build per-question timing array for ML
+            const formattedTimings = Object.entries(questionTimings).map(([qId, seconds]) => ({
+                question_id: parseInt(qId),
+                time_taken: seconds,
+            }));
+
+            const totalTimeSecs = quizStartTime ? Math.round((Date.now() - quizStartTime) / 1000) : 0;
+
             const quizData = {
                 quiz_id: parseInt(quizId),
-                answers: formattedAnswers
+                answers: formattedAnswers,
+                question_timings: formattedTimings,
+                total_time_seconds: totalTimeSecs,
             };
 
             console.log('Quiz submission data:', quizData);
