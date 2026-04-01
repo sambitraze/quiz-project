@@ -45,7 +45,14 @@ const quizResultSchema = Joi.object({
             question_id: Joi.number().integer().positive().required(),
             selected_answer: Joi.number().integer().min(0).required()
         })
-    ).required()
+    ).required(),
+    question_timings: Joi.array().items(
+        Joi.object({
+            question_id: Joi.number().integer().positive().required(),
+            time_taken: Joi.number().min(0).required()
+        })
+    ).default([]),
+    total_time_seconds: Joi.number().integer().min(0).default(0)
 });
 
 // Feedback validation schemas
