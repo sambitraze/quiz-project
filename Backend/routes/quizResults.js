@@ -84,12 +84,26 @@ router.post('/', authenticateToken, validate(quizResultSchema), async (req, res)
 
         // ML: predict level from this attempt
         const correctAnswers = questions.filter(q => q.id && answerMap[q.id] === q.correct_answer).length;
-        const timings = question_timings.length > 0 ? question_timings : [];
+
+        // Build rich per-question data (correctness + timing) for the ML engine
+        const questionData = answers
+            .map(answer => {
+                const question = questions.find(q => q.id === answer.question_id);
+                if (!question) return null;
+                const timing = question_timings.find(t => t.question_id === answer.question_id);
+                return {
+                    question_id: answer.question_id,
+                    is_correct:  answer.selected_answer === question.correct_answer,
+                    time_taken:  timing ? timing.time_taken : 0,
+                };
+            })
+            .filter(Boolean);
+
         const mlResult = predictLevel({
             correctAnswers,
             totalQuestions: questions.filter(q => q.id).length,
             totalTimeTaken: total_time_seconds,
-            questionTimings: timings,
+            questionData,
         });
 
         // Save quiz result (with ML columns)
@@ -153,11 +167,14 @@ router.post('/', authenticateToken, validate(quizResultSchema), async (req, res)
                 },
                 ml: {
                     predicted_level: mlResult.level,
-                    ml_score: mlResult.mlScore,
-                    accuracy: mlResult.accuracy,
-                    speed_score: mlResult.speedScore,
-                    breakdown: mlResult.breakdown,
-                    user_level: updatedProfile.currentLevel,
+                    ml_score:        mlResult.mlScore,
+                    accuracy:        mlResult.accuracy,
+                    speed_score:     mlResult.speedScore,
+                    consistency:     mlResult.consistency,
+                    guessing_flag:   mlResult.guessingFlag,
+                    guessing_count:  mlResult.guessingCount,
+                    breakdown:       mlResult.breakdown,
+                    user_level:      updatedProfile.currentLevel,
                 }
             }
         });

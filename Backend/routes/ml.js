@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin, requireAdminOrOwner } = require('../middleware/auth');
-const { predictLevel, updateUserProfile, generateAISummary, buildRecommendationCriteria } = require('../services/mlService');
+const { predictLevel, updateUserProfile, generateAISummary, buildRecommendationCriteria, assessLevelProgression } = require('../services/mlService');
 
 const router = express.Router();
 
@@ -39,7 +39,7 @@ router.get('/profile/:userId', authenticateToken, requireAdminOrOwner, async (re
 
 /**
  * GET /api/ml/recommendations/:userId
- * Returns recommended quizzes based on user's weak topics and current level.
+ * Returns recommended quizzes based on user's weak topics, current level, and progression assessment.
  */
 router.get('/recommendations/:userId', authenticateToken, requireAdminOrOwner, async (req, res) => {
     try {
@@ -55,6 +55,19 @@ router.get('/recommendations/:userId', authenticateToken, requireAdminOrOwner, a
         );
         const profile = profileResult.rows[0];
         const currentLevel = profile ? profile.current_level : 'medium';
+
+        // Recent results for trend analysis (newest first)
+        const recentResultsData = await db.query(
+            `SELECT ml_score, ml_predicted_level, completed_at
+             FROM quiz_results
+             WHERE user_id = $1 AND ml_score IS NOT NULL
+             ORDER BY completed_at DESC
+             LIMIT 5`,
+            [userId]
+        );
+
+        // Level progression assessment
+        const progression = assessLevelProgression(profile || null, recentResultsData.rows);
 
         // Find lessons where the user has low accuracy (< 60%)
         const weakLessonsResult = await db.query(
@@ -78,9 +91,9 @@ router.get('/recommendations/:userId', authenticateToken, requireAdminOrOwner, a
         );
         const doneQuizIds = doneResult.rows.map(r => r.quiz_id);
 
-        const criteria = buildRecommendationCriteria({ currentLevel, weakLessonIds, doneQuizIds });
+        const excluded = doneQuizIds.length > 0 ? doneQuizIds : [0];
 
-        // 1. Review recommendations — quizzes in weak lessons the user hasn't done yet
+        // 1. Review recommendations — quizzes in weak lessons not yet done
         let reviewRecs = [];
         if (weakLessonIds.length > 0) {
             const reviewResult = await db.query(
@@ -91,17 +104,17 @@ router.get('/recommendations/:userId', authenticateToken, requireAdminOrOwner, a
                    AND q.id != ALL($2::int[])
                  ORDER BY q.created_at DESC
                  LIMIT 5`,
-                [weakLessonIds, doneQuizIds.length > 0 ? doneQuizIds : [0]]
+                [weakLessonIds, excluded]
             );
             reviewRecs = reviewResult.rows.map(q => ({
                 ...q,
                 recommendation_type: 'review',
-                reason: 'You scored below 60% on this topic — reviewing it will help.'
+                reason: 'You scored below 60% on this topic — reviewing it will help.',
             }));
         }
 
-        // 2. Next-level recommendations — new quizzes at the user's current level
-        const nextResult = await db.query(
+        // 2. Current-level recommendations — not yet done
+        const currentResult = await db.query(
             `SELECT q.id, q.title, q.description, l.title as lesson_title, l.level
              FROM quizzes q
              JOIN lessons l ON q.lesson_id = l.id
@@ -109,24 +122,46 @@ router.get('/recommendations/:userId', authenticateToken, requireAdminOrOwner, a
                AND q.id != ALL($2::int[])
              ORDER BY q.created_at DESC
              LIMIT 5`,
-            [currentLevel, doneQuizIds.length > 0 ? doneQuizIds : [0]]
+            [currentLevel, excluded]
         );
-        const nextRecs = nextResult.rows.map(q => ({
+        const nextRecs = currentResult.rows.map(q => ({
             ...q,
             recommendation_type: 'next',
-            reason: `Matched to your current level: ${currentLevel}`
+            reason: `Matched to your current level: ${currentLevel}`,
         }));
+
+        // 3. Level-change recommendations (only when progression says upgrade/downgrade)
+        let levelChangeRecs = [];
+        if (progression.recommendation !== 'maintain' && progression.targetLevel !== currentLevel) {
+            const lcResult = await db.query(
+                `SELECT q.id, q.title, q.description, l.title as lesson_title, l.level
+                 FROM quizzes q
+                 JOIN lessons l ON q.lesson_id = l.id
+                 WHERE l.level = $1
+                   AND q.id != ALL($2::int[])
+                 ORDER BY q.created_at DESC
+                 LIMIT 3`,
+                [progression.targetLevel, excluded]
+            );
+            levelChangeRecs = lcResult.rows.map(q => ({
+                ...q,
+                recommendation_type: progression.recommendation, // 'upgrade' | 'downgrade'
+                reason: progression.reason,
+            }));
+        }
 
         res.json({
             success: true,
             data: {
                 current_level: currentLevel,
-                ml_score: profile ? profile.ml_score : 0,
+                ml_score:      profile ? profile.ml_score : 0,
+                advancement:   progression,
                 recommendations: {
-                    review: reviewRecs,
-                    next: nextRecs,
-                }
-            }
+                    review:       reviewRecs,
+                    next:         nextRecs,
+                    level_change: levelChangeRecs,
+                },
+            },
         });
     } catch (error) {
         console.error('ML recommendations error:', error);
@@ -186,7 +221,31 @@ router.get('/summary/:resultId', authenticateToken, async (req, res) => {
                 : 30);
 
         const predictedLevel = result.ml_predicted_level || 'medium';
-        const mlScore = result.ml_score || 0;
+        const mlScore        = result.ml_score || 0;
+
+        // Guessing: wrong answers under 4s
+        const guessingCount = perfs.filter(p => !p.is_correct && p.time_taken < 4).length;
+        const guessingFlag  = guessingCount >= 2 || guessingCount / Math.max(perfs.length, 1) >= 0.3;
+
+        // Consistency: variance of per-question scores
+        let consistency = 1;
+        if (perfs.length > 0) {
+            const qScores = perfs.map(p => {
+                if (p.is_correct) return 0.5 + 0.5 * Math.max(0, Math.min(1, 1 - p.time_taken / 45));
+                return p.time_taken < 4 ? 0 : 0.1;
+            });
+            const mean = qScores.reduce((s, v) => s + v, 0) / qScores.length;
+            const variance = qScores.reduce((s, v) => s + (v - mean) ** 2, 0) / qScores.length;
+            consistency = Math.max(0, Math.min(1, 1 - variance * 2.5));
+        }
+
+        // Level progression assessment for this user
+        const profileResult2 = await db.query('SELECT * FROM user_level_profiles WHERE user_id = $1', [result.user_id]);
+        const recentResults2  = await db.query(
+            `SELECT ml_score FROM quiz_results WHERE user_id = $1 AND ml_score IS NOT NULL ORDER BY completed_at DESC LIMIT 5`,
+            [result.user_id]
+        );
+        const progression = assessLevelProgression(profileResult2.rows[0] || null, recentResults2.rows);
 
         const summary = generateAISummary({
             quizTitle: result.quiz_title,
@@ -195,17 +254,23 @@ router.get('/summary/:resultId', authenticateToken, async (req, res) => {
             mlScore,
             avgTimePerQuestion,
             wrongTopics,
+            guessingFlag,
+            consistency: Math.round(consistency * 100) / 100,
+            progression,
         });
 
         res.json({
             success: true,
             data: {
                 summary,
-                predicted_level: predictedLevel,
-                ml_score: mlScore,
+                predicted_level:       predictedLevel,
+                ml_score:              mlScore,
                 percentage,
                 avg_time_per_question: avgTimePerQuestion,
-                wrong_topics: wrongTopics,
+                wrong_topics:          wrongTopics,
+                guessing_flag:         guessingFlag,
+                consistency:           Math.round(consistency * 100) / 100,
+                advancement:           progression,
             }
         });
     } catch (error) {
