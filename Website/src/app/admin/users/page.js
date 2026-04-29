@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { usersAPI } from '@/lib/api';
-import { Users, Search, Edit, Trash2, Plus, Filter } from 'lucide-react';
+import { Users, Search, Edit, Trash2, UserX } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function UsersManagement() {
@@ -36,10 +36,22 @@ export default function UsersManagement() {
         try {
             await usersAPI.updateUserRole(userId, newRole);
             toast.success('User role updated successfully');
-            fetchUsers(); // Refresh the list
+            fetchUsers();
         } catch (error) {
             console.error('Error updating role:', error);
             toast.error('Failed to update user role');
+        }
+    };
+
+    const handleDeleteUser = async (userId, username) => {
+        if (!window.confirm(`Are you sure you want to delete user "${username}"? This will permanently delete all their quiz results and data.`)) return;
+        try {
+            await usersAPI.deleteUser(userId);
+            toast.success(`User "${username}" deleted successfully`);
+            fetchUsers();
+        } catch (error) {
+            const msg = error.response?.data?.message || 'Failed to delete user';
+            toast.error(msg);
         }
     };
 
@@ -147,8 +159,8 @@ export default function UsersManagement() {
                                                         value={user.role}
                                                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
                                                         className={`text-xs font-semibold px-2 py-1 rounded-full border-0 focus:ring-2 focus:ring-blue-500 ${user.role === 'admin'
-                                                                ? 'bg-red-100 text-red-800'
-                                                                : 'bg-blue-100 text-blue-800'
+                                                            ? 'bg-red-100 text-red-800'
+                                                            : 'bg-blue-100 text-blue-800'
                                                             }`}
                                                     >
                                                         <option value="student">Student</option>
@@ -160,10 +172,11 @@ export default function UsersManagement() {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                     <div className="flex justify-end space-x-2">
-                                                        <button className="text-blue-600 hover:text-blue-900">
-                                                            <Edit className="h-4 w-4" />
-                                                        </button>
-                                                        <button className="text-red-600 hover:text-red-900">
+                                                        <button
+                                                            onClick={() => handleDeleteUser(user.id, user.username)}
+                                                            className="text-red-600 hover:text-red-900"
+                                                            title="Delete User"
+                                                        >
                                                             <Trash2 className="h-4 w-4" />
                                                         </button>
                                                     </div>

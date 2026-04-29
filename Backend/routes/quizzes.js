@@ -124,7 +124,8 @@ router.post('/', authenticateToken, requireAdmin, validate(quizSchema), async (r
     const client = await db.getClient();
 
     try {
-        const { title, description, lesson_id, questions } = req.body;
+        const { title, description, lesson_id: rawLessonId, questions } = req.body;
+        const lesson_id = rawLessonId && rawLessonId !== '' ? parseInt(rawLessonId) || null : null;
 
         // Start transaction
         await client.query('BEGIN');
@@ -198,7 +199,8 @@ router.put('/:id', authenticateToken, requireAdmin, validate(quizSchema), async 
 
     try {
         const quizId = parseInt(req.params.id);
-        const { title, description, lesson_id, questions } = req.body;
+        const { title, description, lesson_id: rawLessonId, questions } = req.body;
+        const lesson_id = rawLessonId && rawLessonId !== '' ? parseInt(rawLessonId) || null : null;
 
         if (isNaN(quizId)) {
             return res.status(400).json({
@@ -312,10 +314,17 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
             });
         }
 
-        // Delete quiz results first
+        // Delete question_performance rows linked to this quiz's results
+        await client.query(
+            `DELETE FROM question_performance WHERE quiz_result_id IN
+             (SELECT id FROM quiz_results WHERE quiz_id = $1)`,
+            [quizId]
+        );
+
+        // Delete quiz results
         await client.query('DELETE FROM quiz_results WHERE quiz_id = $1', [quizId]);
 
-        // Delete questions
+        // Delete questions (cascade deletes question_performance via FK too)
         await client.query('DELETE FROM questions WHERE quiz_id = $1', [quizId]);
 
         // Delete quiz

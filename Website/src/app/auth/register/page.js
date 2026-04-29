@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Mail, Lock, AlertCircle, UserCog } from 'lucide-react';
+import { User, Mail, Lock, AlertCircle, UserCog, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function RegisterPage() {
@@ -16,9 +16,18 @@ export default function RegisterPage() {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [registerDone, setRegisterDone] = useState(false);
 
-    const { register } = useAuth();
+    const { register, user } = useAuth();
     const router = useRouter();
+
+    // Navigate only after React commits the user state
+    useEffect(() => {
+        if (registerDone && user) {
+            router.replace(user.role === 'admin' ? '/admin' : '/student');
+        }
+    }, [registerDone, user, router]);
 
     const handleChange = (e) => {
         setFormData({
@@ -33,7 +42,6 @@ export default function RegisterPage() {
         setLoading(true);
         setError('');
 
-        // Basic validation
         if (formData.password.length < 6) {
             setError('Password must be at least 6 characters long');
             setLoading(false);
@@ -41,21 +49,11 @@ export default function RegisterPage() {
         }
 
         try {
-            const response = await register(formData);
-
-            if (response.success) {
-                toast.success('Registration successful!');
-
-                // Redirect based on role
-                const userRole = response.data.user.role;
-                if (userRole === 'admin') {
-                    router.push('/admin');
-                } else {
-                    router.push('/');
-                }
-            }
-        } catch (error) {
-            const errorMessage = error.response?.data?.message || 'Registration failed. Please try again.';
+            await register(formData);
+            toast.success('Registration successful!');
+            setRegisterDone(true);
+        } catch (err) {
+            const errorMessage = err.response?.data?.message || 'Registration failed. Please try again.';
             setError(errorMessage);
             toast.error(errorMessage);
         } finally {
@@ -143,14 +141,25 @@ export default function RegisterPage() {
                                 <input
                                     id="password"
                                     name="password"
-                                    type="password"
+                                    type={showPassword ? 'text' : 'password'}
                                     required
                                     value={formData.password}
                                     onChange={handleChange}
-                                    className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                                    className="appearance-none relative block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                                     placeholder="Create a password (min 6 characters)"
                                 />
                                 <Lock className="h-5 w-5 text-gray-400 absolute left-3 top-2.5" />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                                >
+                                    {showPassword ? (
+                                        <EyeOff className="h-5 w-5" />
+                                    ) : (
+                                        <Eye className="h-5 w-5" />
+                                    )}
+                                </button>
                             </div>
                         </div>
 
@@ -177,7 +186,7 @@ export default function RegisterPage() {
                     <div>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || !formData.username || !formData.email || !formData.password}
                             className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {loading ? (

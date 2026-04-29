@@ -25,8 +25,11 @@ const lessonSchema = Joi.object({
 // Quiz validation schemas
 const quizSchema = Joi.object({
     title: Joi.string().min(1).max(200).required(),
-    description: Joi.string().max(500),
-    lesson_id: Joi.number().integer().positive(),
+    description: Joi.string().max(500).allow('').optional(),
+    lesson_id: Joi.alternatives().try(
+        Joi.number().integer().positive(),
+        Joi.string().valid('').allow(null)
+    ).optional(),
     questions: Joi.array().items(
         Joi.object({
             question_text: Joi.string().min(1).required(),

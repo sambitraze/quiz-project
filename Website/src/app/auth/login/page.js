@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Lock, AlertCircle } from 'lucide-react';
+import { User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -14,9 +14,18 @@ export default function LoginPage() {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [loginDone, setLoginDone] = useState(false);
 
-    const { login } = useAuth();
+    const { login, user } = useAuth();
     const router = useRouter();
+
+    // Navigate only after React commits the user state — eliminates race condition
+    useEffect(() => {
+        if (loginDone && user) {
+            router.replace(user.role === 'admin' ? '/admin' : '/student');
+        }
+    }, [loginDone, user, router]);
 
     const handleChange = (e) => {
         setFormData({
@@ -32,26 +41,21 @@ export default function LoginPage() {
         setError('');
 
         try {
-            const response = await login(formData);
-
-            if (response.success) {
-                toast.success('Login successful!');
-
-                // Redirect based on role
-                const userRole = response.data.user.role;
-                if (userRole === 'admin') {
-                    router.push('/admin');
-                } else {
-                    router.push('/');
-                }
-            }
-        } catch (error) {
-            const errorMessage = error.response?.data?.message || 'Login failed. Please try again.';
+            await login(formData);
+            toast.success('Login successful!');
+            setLoginDone(true); // triggers useEffect navigation after state commits
+        } catch (err) {
+            const errorMessage = err.response?.data?.message || 'Login failed. Please try again.';
             setError(errorMessage);
             toast.error(errorMessage);
         } finally {
             setLoading(false);
         }
+    };
+
+    const fillDemo = (username, password) => {
+        setFormData({ username, password });
+        if (error) setError('');
     };
 
     return (
@@ -97,10 +101,11 @@ export default function LoginPage() {
                                     id="username"
                                     name="username"
                                     type="text"
+                                    autoComplete="username"
                                     required
                                     value={formData.username}
                                     onChange={handleChange}
-                                    className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                                    className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                     placeholder="Enter your username"
                                 />
                                 <User className="h-5 w-5 text-gray-400 absolute left-3 top-2.5" />
@@ -115,14 +120,23 @@ export default function LoginPage() {
                                 <input
                                     id="password"
                                     name="password"
-                                    type="password"
+                                    type={showPassword ? 'text' : 'password'}
+                                    autoComplete="current-password"
                                     required
                                     value={formData.password}
                                     onChange={handleChange}
-                                    className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                                    className="appearance-none relative block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                     placeholder="Enter your password"
                                 />
                                 <Lock className="h-5 w-5 text-gray-400 absolute left-3 top-2.5" />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                                    tabIndex={-1}
+                                >
+                                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -145,12 +159,22 @@ export default function LoginPage() {
                     </div>
 
                     <div className="text-center">
-                        <p className="text-sm text-gray-600">
-                            Demo accounts:
-                        </p>
-                        <div className="mt-2 space-y-1 text-xs text-gray-500">
-                            <p>Admin: admin / admin123</p>
-                            <p>Student: john_student / student123</p>
+                        <p className="text-sm text-gray-600 mb-2">Quick demo login:</p>
+                        <div className="flex justify-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => fillDemo('admin', 'admin123')}
+                                className="text-xs px-3 py-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                            >
+                                Admin
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => fillDemo('john_student', 'student123')}
+                                className="text-xs px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                                Student
+                            </button>
                         </div>
                     </div>
                 </form>

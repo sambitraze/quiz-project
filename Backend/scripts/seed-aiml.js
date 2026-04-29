@@ -2,7 +2,7 @@
  * AI/ML Topic Seed Script
  *
  * Adds 5 AI/ML lessons and their quizzes (with 5+ questions each)
- * to the database. Safe to run multiple times — uses ON CONFLICT DO NOTHING.
+ * to the database. Safe to run multiple times — skips already-existing lessons by title.
  *
  * Usage:
  *   node scripts/seed-aiml.js
@@ -352,38 +352,39 @@ async function seedAiMl() {
         let questionsCreated = 0;
 
         for (const lessonDef of LESSONS) {
-            // Insert lesson (skip if title already exists)
-            const lessonInsert = await client.query(
-                `INSERT INTO lessons (title, description, content, video_url, level, created_by, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                 ON CONFLICT (title) DO NOTHING
-                 RETURNING id`,
-                [lessonDef.title, lessonDef.description, lessonDef.content, lessonDef.video_url, lessonDef.level, adminId]
-            );
+            // Check if lesson with this title already exists
+            const existingLesson = await client.query('SELECT id FROM lessons WHERE title = $1', [lessonDef.title]);
 
             let lessonId;
-            if (lessonInsert.rows.length) {
+            if (existingLesson.rows.length) {
+                lessonId = existingLesson.rows[0].id;
+                console.log(`  ↩  Lesson already exists: "${lessonDef.title}"`);
+            } else {
+                // Insert lesson
+                const lessonInsert = await client.query(
+                    `INSERT INTO lessons (title, description, content, video_url, level, created_by, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                     RETURNING id`,
+                    [lessonDef.title, lessonDef.description, lessonDef.content, lessonDef.video_url, lessonDef.level, adminId]
+                );
                 lessonId = lessonInsert.rows[0].id;
                 lessonsCreated++;
-            } else {
-                // Already exists — fetch its id
-                const existing = await client.query('SELECT id FROM lessons WHERE title = $1', [lessonDef.title]);
-                lessonId = existing.rows[0].id;
-                console.log(`  ↩  Lesson already exists: "${lessonDef.title}"`);
             }
 
-            // Insert quiz
-            const quizInsert = await client.query(
-                `INSERT INTO quizzes (title, description, lesson_id, created_by, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, NOW(), NOW())
-                 ON CONFLICT DO NOTHING
-                 RETURNING id`,
-                [lessonDef.quiz.title, lessonDef.quiz.description, lessonId, adminId]
+            // Check if quiz already exists for this lesson
+            const existingQuiz = await client.query(
+                'SELECT id FROM quizzes WHERE title = $1 AND lesson_id = $2',
+                [lessonDef.quiz.title, lessonId]
             );
 
-            let quizId;
-            if (quizInsert.rows.length) {
-                quizId = quizInsert.rows[0].id;
+            if (!existingQuiz.rows.length) {
+                const quizInsert = await client.query(
+                    `INSERT INTO quizzes (title, description, lesson_id, created_by, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, NOW(), NOW())
+                     RETURNING id`,
+                    [lessonDef.quiz.title, lessonDef.quiz.description, lessonId, adminId]
+                );
+                const quizId = quizInsert.rows[0].id;
                 quizzesCreated++;
 
                 // Insert questions

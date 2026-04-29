@@ -70,16 +70,8 @@ export default function ResultsManagement() {
         }
     };
 
-    const viewDetailedResult = async (resultId) => {
-        try {
-            const response = await quizResultsAPI.getResultById(resultId);
-            // For now, just log the detailed result. In a real app, you'd show a modal
-            console.log('Detailed result:', response.data);
-            toast.success('Check console for detailed results');
-        } catch (error) {
-            console.error('Error fetching detailed result:', error);
-            toast.error('Failed to fetch detailed result');
-        }
+    const viewDetailedResult = (resultId) => {
+        window.open(`/student/results/${resultId}`, '_blank');
     };
 
     const getGradeColor = (percentage) => {
@@ -240,9 +232,9 @@ export default function ResultsManagement() {
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="flex items-center">
                                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${result.rank === 1 ? 'bg-yellow-100 text-yellow-800' :
-                                                                        result.rank === 2 ? 'bg-gray-100 text-gray-800' :
-                                                                            result.rank === 3 ? 'bg-orange-100 text-orange-800' :
-                                                                                'bg-blue-100 text-blue-800'
+                                                                    result.rank === 2 ? 'bg-gray-100 text-gray-800' :
+                                                                        result.rank === 3 ? 'bg-orange-100 text-orange-800' :
+                                                                            'bg-blue-100 text-blue-800'
                                                                     }`}>
                                                                     {result.rank}
                                                                 </div>

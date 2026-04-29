@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { lessonsAPI, aiAPI } from '@/lib/api';
-import { BookOpen, ArrowLeft, Clock, User, Star, Tag, Play, Brain, Sparkles } from 'lucide-react';
+import { BookOpen, ArrowLeft, Clock, User, Star, Tag, Play, Brain, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -178,7 +178,7 @@ export default function LessonView() {
                                         disabled={aiSummaryLoading}
                                         className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-300 bg-white hover:bg-indigo-50 px-3 py-1 rounded-md flex items-center gap-1 transition-colors disabled:opacity-50"
                                     >
-                                        <Sparkles className="h-3 w-3" />
+                                        <Wand2 className="h-3 w-3" />
                                         {aiSummaryLoading ? 'Generating…' : 'Generate'}
                                     </button>
                                 )}

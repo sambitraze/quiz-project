@@ -149,6 +149,39 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     }
 });
 
+// Delete user (Admin only)
+router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+        if (isNaN(userId)) {
+            return res.status(400).json({ error: true, message: 'Invalid user ID', code: 'INVALID_USER_ID' });
+        }
+
+        // Prevent deleting self
+        if (req.user.id === userId) {
+            return res.status(400).json({ error: true, message: 'Cannot delete your own account', code: 'CANNOT_DELETE_SELF' });
+        }
+
+        const userExists = await db.query('SELECT id, username FROM users WHERE id = $1', [userId]);
+        if (userExists.rows.length === 0) {
+            return res.status(404).json({ error: true, message: 'User not found', code: 'USER_NOT_FOUND' });
+        }
+
+        // Cascade: question_performance → quiz_results → user
+        await db.query(`DELETE FROM question_performance WHERE quiz_result_id IN
+            (SELECT id FROM quiz_results WHERE user_id = $1)`, [userId]);
+        await db.query('DELETE FROM quiz_results WHERE user_id = $1', [userId]);
+        await db.query('DELETE FROM feedback WHERE user_id = $1', [userId]);
+        await db.query('DELETE FROM user_level_profiles WHERE user_id = $1', [userId]);
+        await db.query('DELETE FROM users WHERE id = $1', [userId]);
+
+        res.json({ success: true, message: `User "${userExists.rows[0].username}" deleted successfully` });
+    } catch (error) {
+        console.error('User deletion error:', error);
+        res.status(500).json({ error: true, message: 'Failed to delete user', code: 'USER_DELETE_ERROR' });
+    }
+});
+
 // Get user statistics (Admin only)
 router.get('/stats/overview', authenticateToken, requireAdmin, async (req, res) => {
     try {

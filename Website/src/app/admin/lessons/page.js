@@ -75,8 +75,11 @@ export default function LessonsManagement() {
                 toast.success('Lesson deleted successfully');
                 fetchLessons();
             } catch (error) {
-                console.error('Error deleting lesson:', error);
-                toast.error('Failed to delete lesson');
+                if (error.response?.status === 409) {
+                    toast.error('Cannot delete this lesson — it has quizzes attached. Delete or unlink those quizzes first.');
+                } else {
+                    toast.error('Failed to delete lesson');
+                }
             }
         }
     };

@@ -3,7 +3,7 @@ import Cookies from 'js-cookie';
 
 // Create axios instance with base configuration
 const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
     timeout: 10000,
     headers: {
         'Content-Type': 'application/json',
@@ -30,12 +30,18 @@ api.interceptors.response.use(
         return response;
     },
     (error) => {
+        // Only auto-redirect on 401 if we're NOT on the login/register page
+        // and it's not an auth endpoint itself (to avoid redirect loops)
         if (error.response?.status === 401) {
-            // Token expired or invalid, redirect to login
-            Cookies.remove('token');
-            Cookies.remove('user');
-            if (typeof window !== 'undefined') {
-                window.location.href = '/auth/login';
+            const url = error.config?.url || '';
+            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+            if (!isAuthEndpoint && typeof window !== 'undefined') {
+                const isOnAuthPage = window.location.pathname.startsWith('/auth/');
+                if (!isOnAuthPage) {
+                    Cookies.remove('token');
+                    Cookies.remove('user');
+                    window.location.href = '/auth/login';
+                }
             }
         }
         return Promise.reject(error);
@@ -74,6 +80,11 @@ export const usersAPI = {
 
     updateUserRole: async (id, role) => {
         const response = await api.put(`/users/${id}/role`, { role });
+        return response.data;
+    },
+
+    deleteUser: async (id) => {
+        const response = await api.delete(`/users/${id}`);
         return response.data;
     },
 

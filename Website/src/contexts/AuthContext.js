@@ -10,79 +10,77 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [token, setToken] = useState(null);
+    const [error, setError] = useState(null);
 
+    // Initialize auth state from cookies on mount
     useEffect(() => {
-        // Initialize auth state from cookies
-        const savedToken = Cookies.get('token');
-        const savedUser = Cookies.get('user');
-
-        if (savedToken && savedUser) {
+        const initAuth = () => {
             try {
-                setToken(savedToken);
-                setUser(JSON.parse(savedUser));
-            } catch (error) {
-                console.error('Error parsing saved user:', error);
-                logout();
+                const savedToken = Cookies.get('token');
+                const savedUser = Cookies.get('user');
+
+                if (savedToken && savedUser) {
+                    try {
+                        const parsedUser = JSON.parse(savedUser);
+                        setToken(savedToken);
+                        setUser(parsedUser);
+                    } catch (parseError) {
+                        // Corrupted cookie data
+                        Cookies.remove('token');
+                        Cookies.remove('user');
+                    }
+                }
+            } finally {
+                setLoading(false);
             }
-        }
-        setLoading(false);
+        };
+
+        initAuth();
     }, []);
 
     const login = async (credentials) => {
-        try {
-            setLoading(true);
-            const response = await authAPI.login(credentials);
+        setError(null);
+        const response = await authAPI.login(credentials);
 
-            if (response.success) {
-                const { user: userData, token: authToken } = response.data;
+        if (response.success) {
+            const { user: userData, token: authToken } = response.data;
 
-                // Save to state
-                setUser(userData);
-                setToken(authToken);
+            Cookies.set('token', authToken, { expires: 7, sameSite: 'lax' });
+            Cookies.set('user', JSON.stringify(userData), { expires: 7, sameSite: 'lax' });
 
-                // Save to cookies
-                Cookies.set('token', authToken, { expires: 7 }); // 7 days
-                Cookies.set('user', JSON.stringify(userData), { expires: 7 });
+            // Set state synchronously so ProtectedRoute sees it immediately
+            setToken(authToken);
+            setUser(userData);
 
-                return response;
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            throw error;
-        } finally {
-            setLoading(false);
+            return response;
         }
+
+        throw new Error('Login failed');
     };
 
     const register = async (userData) => {
-        try {
-            setLoading(true);
-            const response = await authAPI.register(userData);
+        setError(null);
+        const response = await authAPI.register(userData);
 
-            if (response.success) {
-                const { user: newUser, token: authToken } = response.data;
+        if (response.success) {
+            const { user: newUser, token: authToken } = response.data;
 
-                // Save to state
-                setUser(newUser);
-                setToken(authToken);
+            Cookies.set('token', authToken, { expires: 7, sameSite: 'lax' });
+            Cookies.set('user', JSON.stringify(newUser), { expires: 7, sameSite: 'lax' });
 
-                // Save to cookies
-                Cookies.set('token', authToken, { expires: 7 });
-                Cookies.set('user', JSON.stringify(newUser), { expires: 7 });
+            setToken(authToken);
+            setUser(newUser);
 
-                return response;
-            }
-        } catch (error) {
-            console.error('Registration error:', error);
-            throw error;
-        } finally {
-            setLoading(false);
+            return response;
         }
+
+        throw new Error('Registration failed');
     };
 
     const logout = () => {
         setUser(null);
         setToken(null);
+        setError(null);
         Cookies.remove('token');
         Cookies.remove('user');
     };
@@ -108,6 +106,7 @@ export const AuthProvider = ({ children }) => {
         user,
         token,
         loading,
+        error,
         login,
         register,
         logout,
