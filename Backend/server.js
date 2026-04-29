@@ -16,8 +16,9 @@ if (missing.length > 0) {
 }
 
 // Optional but important — warn and continue (affected features will be disabled)
-if (!process.env.GEMINI_API_KEY) {
-    console.warn('[startup] WARNING — GEMINI_API_KEY is not set. AI features (hints, summaries, question generation) will be unavailable.');
+if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
+    console.warn('[startup] WARNING — Neither GROQ_API_KEY nor GEMINI_API_KEY is set. AI features (hints, summaries, question generation) will be unavailable.');
+    console.warn('[startup]   Recommended: get a free Groq key at https://console.groq.com (no billing required)');
 }
 if (!process.env.JWT_EXPIRES_IN) {
     console.warn('[startup] WARNING — JWT_EXPIRES_IN is not set. Defaulting to 7d.');

@@ -1,27 +1,81 @@
 /**
- * AI Service — Google Gemini API integration with local fallback
+ * AI Service — Groq (Llama 3) + Google Gemini with local fallback
  *
- * Uses the free Gemini REST API (gemini-2.0-flash model — generous free tier).
- * If GEMINI_API_KEY is not set, every function gracefully falls back to a
- * deterministic local implementation so the app still works without a key.
+ * Provider priority: Groq → Gemini → local fallback
  *
- * Set in .env:
- *   GEMINI_API_KEY=your_key_here
+ * Groq (recommended free option — no billing required):
+ *   Sign up at https://console.groq.com — free tier: 14,400 req/day, no card needed
+ *   Set in .env:  GROQ_API_KEY=your_key_here
  *
- * Free tier limits (as of 2024):
- *   - 15 requests / minute
- *   - 1 million tokens / day
- *   - No charge for basic usage
+ * Google Gemini (alternative free option):
+ *   Get key at https://aistudio.google.com/app/apikey — use a project WITHOUT billing
+ *   Set in .env:  GEMINI_API_KEY=your_key_here
+ *
+ * If neither key is set, all functions fall back to deterministic local responses.
  */
 
 const https = require('https');
 
+// ─── Groq request (Llama 3.1 via OpenAI-compatible API) ──────────────────────
+
+const GROQ_MODEL = 'llama-3.1-8b-instant';
+const REQUEST_TIMEOUT_MS = 15000;
+
+function groqRequest(apiKey, prompt) {
+    return new Promise((resolve, reject) => {
+        const body = JSON.stringify({
+            model: GROQ_MODEL,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 512,
+        });
+
+        const options = {
+            hostname: 'api.groq.com',
+            path: '/openai/v1/chat/completions',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Length': Buffer.byteLength(body),
+            },
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => { data += chunk; });
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.choices?.[0]?.message?.content) {
+                        resolve(parsed.choices[0].message.content.trim());
+                    } else if (parsed.error) {
+                        reject(new Error(`Groq API error: ${parsed.error.message}`));
+                    } else {
+                        reject(new Error('Unexpected Groq response structure'));
+                    }
+                } catch (e) {
+                    reject(new Error(`Failed to parse Groq response: ${e.message}`));
+                }
+            });
+        });
+
+        req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+            req.destroy();
+            reject(new Error('Groq request timed out'));
+        });
+
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+}
+
+// ─── Gemini request ───────────────────────────────────────────────────────────
+
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_BASE = 'generativelanguage.googleapis.com';
 const GEMINI_PATH = `/v1beta/models/${GEMINI_MODEL}:generateContent`;
-const REQUEST_TIMEOUT_MS = 15000;
-
-// ─── low-level HTTP helper ────────────────────────────────────────────────────
 
 function geminiRequest(apiKey, prompt) {
     return new Promise((resolve, reject) => {
@@ -70,8 +124,29 @@ function geminiRequest(apiKey, prompt) {
     });
 }
 
-function getApiKey() {
-    return process.env.GEMINI_API_KEY || null;
+// ─── Provider router — tries Groq first, then Gemini ─────────────────────────
+
+async function callAI(prompt) {
+    const groqKey = process.env.GROQ_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    if (groqKey) {
+        try {
+            return await groqRequest(groqKey, prompt);
+        } catch (err) {
+            console.warn('[aiService] Groq failed, trying Gemini:', err.message);
+        }
+    }
+
+    if (geminiKey) {
+        return await geminiRequest(geminiKey, prompt);
+    }
+
+    throw new Error('No AI provider available (set GROQ_API_KEY or GEMINI_API_KEY)');
+}
+
+function isConfigured() {
+    return !!(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY);
 }
 
 // ─── 1. Enhanced Quiz Performance Summary ────────────────────────────────────
@@ -100,8 +175,7 @@ async function enhanceSummary(opts) {
         progression = null, localFallback = '',
     } = opts;
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
+    if (!isConfigured()) {
         return { summary: localFallback, aiPowered: false };
     }
 
@@ -135,10 +209,10 @@ Instructions:
 - Do NOT use bullet points`;
 
     try {
-        const aiText = await geminiRequest(apiKey, prompt);
+        const aiText = await callAI(prompt);
         return { summary: aiText, aiPowered: true };
     } catch (err) {
-        console.warn('[aiService] Gemini enhanceSummary failed, using fallback:', err.message);
+        console.warn('[aiService] enhanceSummary failed, using fallback:', err.message);
         return { summary: localFallback, aiPowered: false };
     }
 }
@@ -157,10 +231,9 @@ Instructions:
 async function generateHint(opts) {
     const { questionText, options = [], correctAnswerIndex } = opts;
 
-    const apiKey = getApiKey();
     const correctOption = options[correctAnswerIndex] || '';
 
-    if (!apiKey) {
+    if (!isConfigured()) {
         return {
             hint: `Think carefully about "${questionText.slice(0, 60)}...". Review the core concepts related to this topic.`,
             aiPowered: false,
@@ -182,10 +255,10 @@ Instructions:
 - Be encouraging`;
 
     try {
-        const aiText = await geminiRequest(apiKey, prompt);
+        const aiText = await callAI(prompt);
         return { hint: aiText, aiPowered: true };
     } catch (err) {
-        console.warn('[aiService] Gemini generateHint failed, using fallback:', err.message);
+        console.warn('[aiService] generateHint failed, using fallback:', err.message);
         return {
             hint: `Hint: Think about what "${questionText.slice(0, 50)}..." is asking at its core. Review the relevant concept.`,
             aiPowered: false,
@@ -208,11 +281,9 @@ Instructions:
 async function rateQuiz(opts) {
     const { quizTitle, quizDescription = '', level = 'medium', questions = [] } = opts;
 
-    const apiKey = getApiKey();
-
     // Local fallback: simple heuristic rating
     const localRating = Math.min(5, Math.max(1, Math.round(2 + questions.length * 0.4)));
-    if (!apiKey) {
+    if (!isConfigured()) {
         return {
             rating: localRating,
             feedback: `Quiz "${quizTitle}" has ${questions.length} question(s) at ${level} level.`,
@@ -243,7 +314,7 @@ Respond with ONLY valid JSON in this exact format (no markdown, no extra text):
 }`;
 
     try {
-        const aiText = await geminiRequest(apiKey, prompt);
+        const aiText = await callAI(prompt);
         // Strip any markdown code fences if present
         const cleaned = aiText.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(cleaned);
@@ -254,7 +325,7 @@ Respond with ONLY valid JSON in this exact format (no markdown, no extra text):
             aiPowered: true,
         };
     } catch (err) {
-        console.warn('[aiService] Gemini rateQuiz failed, using fallback:', err.message);
+        console.warn('[aiService] rateQuiz failed, using fallback:', err.message);
         return {
             rating: localRating,
             feedback: `Quiz "${quizTitle}" has ${questions.length} question(s) at ${level} level.`,
@@ -280,12 +351,11 @@ async function generateQuestions(opts) {
     const { topic, difficulty = 'medium', count = 3, context = '' } = opts;
     const safeCount = Math.min(10, Math.max(1, parseInt(count) || 3));
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
+    if (!isConfigured()) {
         return {
             questions: [],
             aiPowered: false,
-            message: 'Set GEMINI_API_KEY in .env to enable AI question generation.',
+            message: 'Set GROQ_API_KEY or GEMINI_API_KEY in .env to enable AI question generation.',
         };
     }
 
@@ -307,7 +377,7 @@ Respond with ONLY valid JSON array (no markdown, no extra text):
 ]`;
 
     try {
-        const aiText = await geminiRequest(apiKey, prompt);
+        const aiText = await callAI(prompt);
         const cleaned = aiText.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(cleaned);
         if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
@@ -320,7 +390,7 @@ Respond with ONLY valid JSON array (no markdown, no extra text):
         })).filter(q => q.question_text && q.options.length >= 2);
         return { questions, aiPowered: true };
     } catch (err) {
-        console.warn('[aiService] Gemini generateQuestions failed:', err.message);
+        console.warn('[aiService] generateQuestions failed:', err.message);
         return { questions: [], aiPowered: false, message: err.message };
     }
 }
@@ -337,9 +407,7 @@ Respond with ONLY valid JSON array (no markdown, no extra text):
  */
 async function summariseLesson(opts) {
     const { title, content = '' } = opts;
-    const apiKey = getApiKey();
-
-    if (!apiKey || !content) {
+    if (!isConfigured() || !content) {
         return { summary: [], aiPowered: false };
     }
 
@@ -349,13 +417,13 @@ Lesson title: "${title}"
 Content: ${content.slice(0, 2000)}`;
 
     try {
-        const aiText = await geminiRequest(apiKey, prompt);
+        const aiText = await callAI(prompt);
         const cleaned = aiText.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(cleaned);
         if (!Array.isArray(parsed)) throw new Error('Expected array');
         return { summary: parsed.slice(0, 3).map(String), aiPowered: true };
     } catch (err) {
-        console.warn('[aiService] Gemini summariseLesson failed:', err.message);
+        console.warn('[aiService] summariseLesson failed:', err.message);
         return { summary: [], aiPowered: false };
     }
 }
@@ -366,5 +434,5 @@ module.exports = {
     rateQuiz,
     generateQuestions,
     summariseLesson,
-    isConfigured: () => !!getApiKey(),
+    isConfigured,
 };
