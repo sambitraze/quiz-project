@@ -1,12 +1,270 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { quizzesAPI, lessonsAPI, aiAPI } from '@/lib/api';
-import { FileQuestion, Search, Edit, Trash2, Plus, Eye, Minus, Star, Brain } from 'lucide-react';
+import { FileQuestion, Search, Edit, Trash2, Plus, Eye, Minus, Star, Brain, Wand2, Loader2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// ─── AI Question Generator panel ─────────────────────────────────────────────
+const AIGenerator = memo(function AIGenerator({ lessons, onInsert }) {
+    const [topic, setTopic] = useState('');
+    const [difficulty, setDifficulty] = useState('medium');
+    const [count, setCount] = useState(3);
+    const [lessonId, setLessonId] = useState('');
+    const [generating, setGenerating] = useState(false);
+    const [preview, setPreview] = useState([]);
+
+    const handleGenerate = async () => {
+        if (!topic.trim()) { toast.error('Enter a topic first'); return; }
+        setGenerating(true);
+        setPreview([]);
+        try {
+            const res = await aiAPI.generateQuestions({ topic, difficulty, count, lessonId: lessonId || undefined });
+            if (!res.data?.questions?.length) { toast.error('AI returned no questions — try a different topic'); return; }
+            setPreview(res.data.questions);
+            toast.success(`${res.data.questions.length} questions generated`);
+        } catch {
+            toast.error('AI question generation failed');
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    return (
+        <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 mb-2">
+            <div className="flex items-center gap-2 mb-3">
+                <Brain className="h-4 w-4 text-indigo-600" />
+                <h3 className="text-sm font-semibold text-indigo-800">AI Question Generator</h3>
+                <span className="text-xs text-indigo-500 bg-indigo-100 px-2 py-0.5 rounded-full">✨ Powered by AI</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+                <input
+                    className="sm:col-span-2 px-3 py-2 border border-indigo-200 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    placeholder="Topic (e.g. Binary Search Trees)"
+                    value={topic}
+                    onChange={e => setTopic(e.target.value)}
+                />
+                <select
+                    className="px-3 py-2 border border-indigo-200 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    value={difficulty}
+                    onChange={e => setDifficulty(e.target.value)}
+                >
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+                <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    className="px-3 py-2 border border-indigo-200 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    placeholder="Count"
+                    value={count}
+                    onChange={e => setCount(Math.min(8, Math.max(1, parseInt(e.target.value) || 1)))}
+                />
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+                <select
+                    className="flex-1 px-3 py-2 border border-indigo-200 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    value={lessonId}
+                    onChange={e => setLessonId(e.target.value)}
+                >
+                    <option value="">Ground in lesson content (optional)</option>
+                    {lessons.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
+                </select>
+                <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-60 text-sm whitespace-nowrap"
+                >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                    {generating ? 'Generating…' : 'Generate'}
+                </button>
+            </div>
+
+            {preview.length > 0 && (
+                <div className="space-y-2">
+                    <p className="text-xs text-indigo-600 font-medium">Preview — click Add to insert into the form:</p>
+                    {preview.map((q, i) => (
+                        <div key={i} className="bg-white border border-indigo-100 rounded-md p-3 text-xs">
+                            <div className="flex items-start justify-between gap-2">
+                                <p className="font-medium text-gray-800 flex-1">{q.question_text}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => { onInsert(q); setPreview(prev => prev.filter((_, j) => j !== i)); }}
+                                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >
+                                    <Plus className="h-3 w-3" /> Add
+                                </button>
+                            </div>
+                            <ul className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                                {q.options.map((opt, oi) => (
+                                    <li key={oi} className={`flex items-center gap-1 ${oi === q.correct_answer ? 'text-green-700 font-semibold' : 'text-gray-600'}`}>
+                                        {oi === q.correct_answer ? <CheckCircle className="h-3 w-3 flex-shrink-0" /> : <span className="w-3" />}
+                                        {opt}
+                                    </li>
+                                ))}
+                            </ul>
+                            {q.explanation && <p className="mt-1 text-gray-400 italic">{q.explanation}</p>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+});
+
+// ─── Quiz modal (defined outside page component to avoid remount on state change) ──
+const QuizModal = memo(function QuizModal({
+    isOpen, onClose, onSubmit, isEditing,
+    formData, setFormData, lessons,
+    addQuestion, removeQuestion, updateQuestion, updateOption,
+}) {
+    if (!isOpen) return null;
+
+    const handleInsertAIQuestion = (q) => {
+        setFormData(prev => ({
+            ...prev,
+            questions: [...prev.questions, {
+                question_text: q.question_text,
+                options: q.options.length === 4 ? q.options : [...q.options, ...Array(4 - q.options.length).fill('')],
+                correct_answer: typeof q.correct_answer === 'number' ? q.correct_answer : 0,
+                points: q.points || 1,
+            }],
+        }));
+        toast.success('Question added to form');
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center text-black z-50 p-4">
+            <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="p-6">
+                    <h2 className="text-xl font-bold mb-4">{isEditing ? 'Edit Quiz' : 'Create New Quiz'}</h2>
+                    <form onSubmit={onSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                                <input
+                                    type="text"
+                                    value={formData.title}
+                                    onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Associated Lesson (Optional)</label>
+                                <select
+                                    value={formData.lesson_id}
+                                    onChange={e => setFormData(prev => ({ ...prev, lesson_id: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="">No lesson</option>
+                                    {lessons.map(lesson => (
+                                        <option key={lesson.id} value={lesson.id}>{lesson.title}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                            <textarea
+                                value={formData.description}
+                                onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                                rows={3}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </div>
+
+                        {/* AI Question Generator */}
+                        <AIGenerator lessons={lessons} onInsert={handleInsertAIQuestion} />
+
+                        <div>
+                            <div className="flex justify-between items-center mb-4">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    Questions ({formData.questions.length})
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={addQuestion}
+                                    className="flex items-center px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                                >
+                                    <Plus className="h-4 w-4 mr-1" /> Add Question
+                                </button>
+                            </div>
+
+                            {formData.questions.map((question, qIndex) => (
+                                <div key={qIndex} className="border border-gray-200 rounded-lg p-4 mb-4">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <h4 className="font-medium">Question {qIndex + 1}</h4>
+                                        {formData.questions.length > 1 && (
+                                            <button type="button" onClick={() => removeQuestion(qIndex)} className="text-red-600 hover:text-red-900">
+                                                <Minus className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="space-y-3">
+                                        <input
+                                            type="text"
+                                            placeholder="Enter question text"
+                                            value={question.question_text}
+                                            onChange={e => updateQuestion(qIndex, 'question_text', e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                            required
+                                        />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {question.options.map((option, oIndex) => (
+                                                <div key={oIndex} className="flex items-center space-x-2">
+                                                    <input
+                                                        type="radio"
+                                                        name={`correct-${qIndex}`}
+                                                        checked={question.correct_answer === oIndex}
+                                                        onChange={() => updateQuestion(qIndex, 'correct_answer', oIndex)}
+                                                        className="text-blue-600"
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        placeholder={`Option ${oIndex + 1}`}
+                                                        value={option}
+                                                        onChange={e => updateOption(qIndex, oIndex, e.target.value)}
+                                                        className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center space-x-4">
+                                            <label className="text-sm text-gray-600">Points:</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={question.points}
+                                                onChange={e => updateQuestion(qIndex, 'points', parseInt(e.target.value) || 1)}
+                                                className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex justify-end space-x-3 pt-4 border-t">
+                            <button type="button" onClick={onClose} className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300">Cancel</button>
+                            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                                {isEditing ? 'Update Quiz' : 'Create Quiz'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+// ─── Page component ────────────────────────────────────────────────────────────
 export default function QuizzesManagement() {
     const [quizzes, setQuizzes] = useState([]);
     const [lessons, setLessons] = useState([]);
@@ -186,155 +444,9 @@ export default function QuizzesManagement() {
         (quiz.description && quiz.description.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
-    const QuizModal = ({ isOpen, onClose, onSubmit, isEditing }) => {
-        if (!isOpen) return null;
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center text-black z-50 p-4">
-                <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                    <div className="p-6">
-                        <h2 className="text-xl font-bold mb-4">
-                            {isEditing ? 'Edit Quiz' : 'Create New Quiz'}
-                        </h2>
-                        <form onSubmit={onSubmit} className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Title
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formData.title}
-                                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Associated Lesson (Optional)
-                                    </label>
-                                    <select
-                                        value={formData.lesson_id}
-                                        onChange={(e) => setFormData({ ...formData, lesson_id: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                        <option value="">No lesson</option>
-                                        {lessons.map(lesson => (
-                                            <option key={lesson.id} value={lesson.id}>{lesson.title}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Description
-                                </label>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    rows={3}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            </div>
-
-                            <div>
-                                <div className="flex justify-between items-center mb-4">
-                                    <label className="block text-sm font-medium text-gray-700">Questions</label>
-                                    <button
-                                        type="button"
-                                        onClick={addQuestion}
-                                        className="flex items-center px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                                    >
-                                        <Plus className="h-4 w-4 mr-1" />
-                                        Add Question
-                                    </button>
-                                </div>
-
-                                {formData.questions.map((question, qIndex) => (
-                                    <div key={qIndex} className="border border-gray-200 rounded-lg p-4 mb-4">
-                                        <div className="flex justify-between items-start mb-3">
-                                            <h4 className="font-medium">Question {qIndex + 1}</h4>
-                                            {formData.questions.length > 1 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeQuestion(qIndex)}
-                                                    className="text-red-600 hover:text-red-900"
-                                                >
-                                                    <Minus className="h-4 w-4" />
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <div>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Enter question text"
-                                                    value={question.question_text}
-                                                    onChange={(e) => updateQuestion(qIndex, 'question_text', e.target.value)}
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                                    required
-                                                />
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                {question.options.map((option, oIndex) => (
-                                                    <div key={oIndex} className="flex items-center space-x-2">
-                                                        <input
-                                                            type="radio"
-                                                            name={`correct-${qIndex}`}
-                                                            checked={question.correct_answer === oIndex}
-                                                            onChange={() => updateQuestion(qIndex, 'correct_answer', oIndex)}
-                                                            className="text-blue-600"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            placeholder={`Option ${oIndex + 1}`}
-                                                            value={option}
-                                                            onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
-                                                            className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                                                        />
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            <div className="flex items-center space-x-4">
-                                                <label className="text-sm text-gray-600">Points:</label>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    value={question.points}
-                                                    onChange={(e) => updateQuestion(qIndex, 'points', parseInt(e.target.value))}
-                                                    className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="flex justify-end space-x-3 pt-4 border-t">
-                                <button
-                                    type="button"
-                                    onClick={onClose}
-                                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                                >
-                                    {isEditing ? 'Update' : 'Create'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        );
+    const sharedModalProps = {
+        formData, setFormData, lessons,
+        addQuestion, removeQuestion, updateQuestion, updateOption,
     };
 
     if (loading && quizzes.length === 0) {
@@ -431,17 +543,16 @@ export default function QuizzesManagement() {
                                             </button>
                                             <button
                                                 onClick={() => handleRateQuiz(quiz.id)}
-                                                className="p-2 text-indigo-600 hover:text-indigo-900"
+                                                className="p-2 text-indigo-600 hover:text-indigo-900 disabled:opacity-40"
                                                 title="AI Rate Quiz"
                                                 disabled={quizRatings[quiz.id]?.loading}
                                             >
-                                                <Brain className="h-4 w-4" />
+                                                {quizRatings[quiz.id]?.loading
+                                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                    : <Brain className="h-4 w-4" />}
                                             </button>
                                         </div>
                                         {/* AI Rating Result */}
-                                        {quizRatings[quiz.id]?.loading && (
-                                            <p className="text-xs text-indigo-400 mt-1 text-right">Rating…</p>
-                                        )}
                                         {quizRatings[quiz.id]?.rating && (
                                             <div className="mt-2 p-2 bg-indigo-50 border border-indigo-100 rounded text-xs text-indigo-800">
                                                 <div className="flex items-center gap-1 mb-1">
@@ -496,6 +607,7 @@ export default function QuizzesManagement() {
 
             {/* Create Modal */}
             <QuizModal
+                {...sharedModalProps}
                 isOpen={showCreateModal}
                 onClose={() => {
                     setShowCreateModal(false);
@@ -507,6 +619,7 @@ export default function QuizzesManagement() {
 
             {/* Edit Modal */}
             <QuizModal
+                {...sharedModalProps}
                 isOpen={!!editingQuiz}
                 onClose={() => {
                     setEditingQuiz(null);

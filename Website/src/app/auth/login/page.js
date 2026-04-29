@@ -170,7 +170,7 @@ export default function LoginPage() {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => fillDemo('john_student', 'student123')}
+                                onClick={() => fillDemo('alice_smith', 'Alice@123')}
                                 className="text-xs px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
                             >
                                 Student
