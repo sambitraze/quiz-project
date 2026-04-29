@@ -2,7 +2,27 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
 require('dotenv').config();
+
+// ── Environment variable validation ──────────────────────────────────────────
+// Required — server will not start without these
+const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
+const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
+if (missing.length > 0) {
+    console.error(`[startup] FATAL — Missing required environment variables: ${missing.join(', ')}`);
+    console.error('[startup] Please set them in your .env file (see .env.example) and restart.');
+    process.exit(1);
+}
+
+// Optional but important — warn and continue (affected features will be disabled)
+if (!process.env.GEMINI_API_KEY) {
+    console.warn('[startup] WARNING — GEMINI_API_KEY is not set. AI features (hints, summaries, question generation) will be unavailable.');
+}
+if (!process.env.JWT_EXPIRES_IN) {
+    console.warn('[startup] WARNING — JWT_EXPIRES_IN is not set. Defaulting to 7d.');
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -18,6 +38,9 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors());
+
+// HTTP request logging
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Rate limiting
 const limiter = rateLimit({
