@@ -7,6 +7,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { lessonsAPI, aiAPI } from '@/lib/api';
 import { BookOpen, ArrowLeft, Clock, User, Star, Tag, Play, Brain, Wand2 } from 'lucide-react';
+import MarkdownContent from '@/components/MarkdownContent';
 import toast from 'react-hot-toast';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -200,18 +201,11 @@ export default function LessonView() {
 
                         {/* Lesson Content */}
                         <div className="px-6 py-8">
-                            <div className="prose prose-lg max-w-none">
-                                {lesson.content ? (
-                                    <div
-                                        className='text-black'
-                                        dangerouslySetInnerHTML={{
-                                            __html: lesson.content.replace(/\n/g, '<br/>')
-                                        }}
-                                    />
-                                ) : (
-                                    <p className="text-gray-500 italic">No content available for this lesson.</p>
-                                )}
-                            </div>
+                            {lesson.content ? (
+                                <MarkdownContent content={lesson.content} />
+                            ) : (
+                                <p className="text-gray-500 italic">No content available for this lesson.</p>
+                            )}
                         </div>
 
                         {/* Lesson Footer */}

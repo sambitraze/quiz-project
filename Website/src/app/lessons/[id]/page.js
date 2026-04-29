@@ -7,6 +7,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import VideoPlayer from '@/components/VideoPlayer';
 import { lessonsAPI } from '@/lib/api';
 import { BookOpen, ArrowLeft, Lock, User, Calendar, Play, Star, ArrowRight } from 'lucide-react';
+import MarkdownContent from '@/components/MarkdownContent';
 
 export default function PublicLessonView() {
     const params = useParams();
@@ -158,15 +159,11 @@ export default function PublicLessonView() {
                         <div className="mb-8">
                             <h3 className="text-xl font-semibold text-gray-900 mb-4">Lesson Overview</h3>
                             <div className="bg-gray-50 rounded-lg p-6">
-                                <div className="prose prose-lg max-w-none text-gray-700">
-                                    {lesson.content ? (
-                                        <div dangerouslySetInnerHTML={{
-                                            __html: lesson.content.split('\n\n')[0].replace(/\n/g, '<br/>') + '...'
-                                        }} />
-                                    ) : (
-                                        <p>This comprehensive lesson covers essential concepts with practical examples and hands-on exercises.</p>
-                                    )}
-                                </div>
+                                {lesson.content ? (
+                                    <MarkdownContent content={lesson.content.split('\n\n').slice(0, 3).join('\n\n') + '\n\n*...sign in to read the full lesson.*'} />
+                                ) : (
+                                    <p className="text-gray-700">This comprehensive lesson covers essential concepts with practical examples and hands-on exercises.</p>
+                                )}
                             </div>
                         </div>
 
