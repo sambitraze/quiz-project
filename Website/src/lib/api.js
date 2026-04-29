@@ -239,4 +239,45 @@ export const mlAPI = {
     },
 };
 
+// AI Features API calls (Google Gemini — free tier with fallback)
+export const aiAPI = {
+    /** Check whether the backend has a Gemini API key configured */
+    getStatus: async () => {
+        const response = await api.get('/ai/status');
+        return response.data;
+    },
+
+    /** AI-enhanced performance summary for a quiz result */
+    getEnhancedSummary: async (resultId) => {
+        const response = await api.get(`/ai/summary/${resultId}`);
+        return response.data;
+    },
+
+    /** Get a hint for a question the student answered incorrectly */
+    getHint: async (questionId, quizResultId) => {
+        const response = await api.post('/ai/hint', { question_id: questionId, quiz_result_id: quizResultId });
+        return response.data;
+    },
+
+    /** Admin: rate a quiz's educational quality */
+    rateQuiz: async (quizId) => {
+        const response = await api.post(`/ai/rate-quiz/${quizId}`);
+        return response.data;
+    },
+
+    /** Admin: generate quiz questions for a topic using AI */
+    generateQuestions: async ({ topic, difficulty = 'medium', count = 3, lessonId }) => {
+        const response = await api.post('/ai/generate-questions', {
+            topic, difficulty, count, lesson_id: lessonId,
+        });
+        return response.data;
+    },
+
+    /** Get a 3-bullet AI summary of a lesson's content */
+    getLessonSummary: async (lessonId) => {
+        const response = await api.get(`/ai/lesson-summary/${lessonId}`);
+        return response.data;
+    },
+};
+
 export default api;

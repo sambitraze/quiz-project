@@ -11,6 +11,7 @@ const quizRoutes = require('./routes/quizzes');
 const quizResultRoutes = require('./routes/quizResults');
 const feedbackRoutes = require('./routes/feedback');
 const mlRoutes = require('./routes/ml');
+const aiRoutes = require('./routes/ai');
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/quiz-results', quizResultRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/ml', mlRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

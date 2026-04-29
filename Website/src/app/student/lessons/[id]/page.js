@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { lessonsAPI } from '@/lib/api';
-import { BookOpen, ArrowLeft, Clock, User, Star, Tag, Play } from 'lucide-react';
+import { lessonsAPI, aiAPI } from '@/lib/api';
+import { BookOpen, ArrowLeft, Clock, User, Star, Tag, Play, Brain, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -15,6 +15,8 @@ export default function LessonView() {
     const lessonId = params.id;
     const [lesson, setLesson] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [aiSummary, setAiSummary] = useState(null);
+    const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
 
     useEffect(() => {
         if (lessonId) {
@@ -32,6 +34,19 @@ export default function LessonView() {
             toast.error('Failed to load lesson');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchAiSummary = async () => {
+        if (aiSummary || aiSummaryLoading) return;
+        setAiSummaryLoading(true);
+        try {
+            const res = await aiAPI.getLessonSummary(lessonId);
+            setAiSummary(res.data);
+        } catch {
+            toast.error('Could not load AI summary');
+        } finally {
+            setAiSummaryLoading(false);
         }
     };
 
@@ -149,6 +164,39 @@ export default function LessonView() {
                                 <VideoPlayer videoUrl={lesson.video_url} title={lesson.title} />
                             </div>
                         )}
+
+                        {/* AI Lesson Summary */}
+                        <div className="px-6 py-4 border-b border-indigo-100 bg-indigo-50">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Brain className="h-4 w-4 text-indigo-600" />
+                                    <span className="text-sm font-medium text-indigo-800">AI Quick Summary</span>
+                                </div>
+                                {!aiSummary && (
+                                    <button
+                                        onClick={fetchAiSummary}
+                                        disabled={aiSummaryLoading}
+                                        className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-300 bg-white hover:bg-indigo-50 px-3 py-1 rounded-md flex items-center gap-1 transition-colors disabled:opacity-50"
+                                    >
+                                        <Sparkles className="h-3 w-3" />
+                                        {aiSummaryLoading ? 'Generating…' : 'Generate'}
+                                    </button>
+                                )}
+                            </div>
+                            {aiSummary?.summary?.length > 0 && (
+                                <ul className="mt-3 space-y-1">
+                                    {aiSummary.summary.map((point, i) => (
+                                        <li key={i} className="text-sm text-indigo-900 flex items-start gap-2">
+                                            <span className="text-indigo-400 font-bold mt-0.5">•</span>
+                                            {point}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {aiSummary && !aiSummary.aiPowered && !aiSummary.summary?.length && (
+                                <p className="mt-2 text-xs text-gray-400">Set GEMINI_API_KEY on the server to enable AI summaries.</p>
+                            )}
+                        </div>
 
                         {/* Lesson Content */}
                         <div className="px-6 py-8">

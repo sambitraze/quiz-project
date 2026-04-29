@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { quizResultsAPI, mlAPI } from '@/lib/api';
+import { quizResultsAPI, mlAPI, aiAPI } from '@/lib/api';
 import { ArrowLeft, CheckCircle, XCircle, Trophy, Clock, Target, Award, Brain, TrendingUp, BookOpen, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const LEVEL_CONFIG = {
-    easy:   { label: 'Easy',   color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-400', bar: 'bg-green-500'  },
+    easy: { label: 'Easy', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-400', bar: 'bg-green-500' },
     medium: { label: 'Medium', color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-400', bar: 'bg-yellow-500' },
-    hard:   { label: 'Hard',   color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-400',    bar: 'bg-red-500'    },
+    hard: { label: 'Hard', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-400', bar: 'bg-red-500' },
 };
 
 export default function ResultDetails() {
@@ -20,7 +20,9 @@ export default function ResultDetails() {
     const resultId = params.id;
     const [result, setResult] = useState(null);
     const [mlSummary, setMlSummary] = useState(null);
+    const [aiSummary, setAiSummary] = useState(null);
     const [recommendations, setRecommendations] = useState(null);
+    const [hints, setHints] = useState({});         // { [questionId]: { hint, loading } }
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -36,13 +38,15 @@ export default function ResultDetails() {
             const resultData = response.quiz_result || response.data?.quiz_result;
             setResult(resultData);
 
-            // Fetch ML summary and recommendations in parallel
+            // Fetch ML summary, AI summary, and recommendations in parallel
             if (resultData) {
-                const [summaryRes, recsRes] = await Promise.allSettled([
+                const [summaryRes, aiSummaryRes, recsRes] = await Promise.allSettled([
                     mlAPI.getResultSummary(resultId),
+                    aiAPI.getEnhancedSummary(resultId),
                     mlAPI.getRecommendations(resultData.user_id),
                 ]);
                 if (summaryRes.status === 'fulfilled') setMlSummary(summaryRes.value?.data);
+                if (aiSummaryRes.status === 'fulfilled') setAiSummary(aiSummaryRes.value?.data);
                 if (recsRes.status === 'fulfilled') setRecommendations(recsRes.value?.data);
             }
         } catch (error) {
@@ -50,6 +54,17 @@ export default function ResultDetails() {
             toast.error('Failed to load result details');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchHint = async (questionId) => {
+        if (!result?.id || hints[questionId]?.hint) return;
+        setHints(prev => ({ ...prev, [questionId]: { loading: true, hint: null } }));
+        try {
+            const res = await aiAPI.getHint(questionId, result.id);
+            setHints(prev => ({ ...prev, [questionId]: { loading: false, hint: res.data?.hint || 'No hint available.' } }));
+        } catch {
+            setHints(prev => ({ ...prev, [questionId]: { loading: false, hint: 'Could not load hint.' } }));
         }
     };
 
@@ -193,7 +208,12 @@ export default function ResultDetails() {
                         <div className="px-6 py-4 border-b border-purple-100 bg-gradient-to-r from-purple-50 to-indigo-50 flex items-center gap-2">
                             <Brain className="h-5 w-5 text-purple-600" />
                             <h2 className="text-lg font-semibold text-purple-900">Adaptive Learning Analysis</h2>
-                            <span className="ml-auto text-xs text-purple-500 bg-purple-100 px-2 py-0.5 rounded-full font-medium">AI Powered</span>
+                            {aiSummary?.aiPowered && (
+                                <span className="ml-auto text-xs text-purple-500 bg-purple-100 px-2 py-0.5 rounded-full font-medium">✨ Gemini AI</span>
+                            )}
+                            {aiSummary && !aiSummary.aiPowered && (
+                                <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">Local Analysis</span>
+                            )}
                         </div>
 
                         <div className="p-6 space-y-6">
@@ -236,12 +256,15 @@ export default function ResultDetails() {
                             </div>
 
                             {/* AI Summary */}
-                            {mlSummary?.summary && (
+                            {(aiSummary?.summary || mlSummary?.summary) && (
                                 <div className="border border-blue-100 bg-blue-50 rounded-lg p-4">
                                     <h3 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-1">
-                                        <Brain className="h-4 w-4" /> AI Performance Summary
+                                        <Brain className="h-4 w-4" />
+                                        {aiSummary?.aiPowered ? '✨ AI Performance Summary' : 'Performance Summary'}
                                     </h3>
-                                    <p className="text-sm text-blue-900 leading-relaxed">{mlSummary.summary}</p>
+                                    <p className="text-sm text-blue-900 leading-relaxed">
+                                        {aiSummary?.summary || mlSummary?.summary}
+                                    </p>
                                 </div>
                             )}
 
@@ -369,6 +392,28 @@ export default function ResultDetails() {
                                                         <span className="font-medium text-black">Correct answer: </span>
                                                         {answer.options[answer.correct_answer]}
                                                     </p>
+                                                </div>
+                                            )}
+
+                                            {/* AI Hint for wrong answers */}
+                                            {!answer.is_correct && (
+                                                <div className="mt-2">
+                                                    {!hints[answer.question_id] && (
+                                                        <button
+                                                            onClick={() => fetchHint(answer.question_id)}
+                                                            className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 hover:border-indigo-400 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors"
+                                                        >
+                                                            <Brain className="h-3.5 w-3.5" /> Get AI Hint
+                                                        </button>
+                                                    )}
+                                                    {hints[answer.question_id]?.loading && (
+                                                        <p className="text-xs text-indigo-500 italic">Loading hint…</p>
+                                                    )}
+                                                    {hints[answer.question_id]?.hint && (
+                                                        <div className="p-2.5 rounded-md bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 leading-relaxed">
+                                                            <span className="font-semibold">💡 Hint: </span>{hints[answer.question_id].hint}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

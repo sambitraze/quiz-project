@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { quizzesAPI, lessonsAPI } from '@/lib/api';
-import { FileQuestion, Search, Edit, Trash2, Plus, Eye, Minus } from 'lucide-react';
+import { quizzesAPI, lessonsAPI, aiAPI } from '@/lib/api';
+import { FileQuestion, Search, Edit, Trash2, Plus, Eye, Minus, Star, Brain } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function QuizzesManagement() {
@@ -15,6 +15,7 @@ export default function QuizzesManagement() {
     const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [editingQuiz, setEditingQuiz] = useState(null);
+    const [quizRatings, setQuizRatings] = useState({});   // { [quizId]: { rating, feedback, loading } }
     const [formData, setFormData] = useState({
         title: '',
         description: '',
@@ -102,6 +103,18 @@ export default function QuizzesManagement() {
                 console.error('Error deleting quiz:', error);
                 toast.error('Failed to delete quiz');
             }
+        }
+    };
+
+    const handleRateQuiz = async (quizId) => {
+        if (quizRatings[quizId]?.rating) return; // already rated
+        setQuizRatings(prev => ({ ...prev, [quizId]: { loading: true } }));
+        try {
+            const res = await aiAPI.rateQuiz(quizId);
+            setQuizRatings(prev => ({ ...prev, [quizId]: { loading: false, ...res.data } }));
+        } catch {
+            toast.error('AI rating failed');
+            setQuizRatings(prev => ({ ...prev, [quizId]: { loading: false } }));
         }
     };
 
@@ -416,7 +429,38 @@ export default function QuizzesManagement() {
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </button>
+                                            <button
+                                                onClick={() => handleRateQuiz(quiz.id)}
+                                                className="p-2 text-indigo-600 hover:text-indigo-900"
+                                                title="AI Rate Quiz"
+                                                disabled={quizRatings[quiz.id]?.loading}
+                                            >
+                                                <Brain className="h-4 w-4" />
+                                            </button>
                                         </div>
+                                        {/* AI Rating Result */}
+                                        {quizRatings[quiz.id]?.loading && (
+                                            <p className="text-xs text-indigo-400 mt-1 text-right">Rating…</p>
+                                        )}
+                                        {quizRatings[quiz.id]?.rating && (
+                                            <div className="mt-2 p-2 bg-indigo-50 border border-indigo-100 rounded text-xs text-indigo-800">
+                                                <div className="flex items-center gap-1 mb-1">
+                                                    {Array.from({ length: 5 }, (_, i) => (
+                                                        <Star key={i} className={`h-3 w-3 ${i < quizRatings[quiz.id].rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
+                                                    ))}
+                                                    <span className="ml-1 font-medium">{quizRatings[quiz.id].rating}/5</span>
+                                                    {quizRatings[quiz.id].aiPowered && <span className="ml-auto text-indigo-400">✨ AI</span>}
+                                                </div>
+                                                <p className="text-indigo-700">{quizRatings[quiz.id].feedback}</p>
+                                                {quizRatings[quiz.id].suggestions?.length > 0 && (
+                                                    <ul className="mt-1 space-y-0.5">
+                                                        {quizRatings[quiz.id].suggestions.map((s, i) => (
+                                                            <li key={i} className="text-indigo-600">• {s}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ))
