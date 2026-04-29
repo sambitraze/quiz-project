@@ -1,7 +1,7 @@
 /**
  * AI Service — Google Gemini API integration with local fallback
  *
- * Uses the free Gemini REST API (gemini-1.5-flash model — generous free tier).
+ * Uses the free Gemini REST API (gemini-2.0-flash model — generous free tier).
  * If GEMINI_API_KEY is not set, every function gracefully falls back to a
  * deterministic local implementation so the app still works without a key.
  *
@@ -16,7 +16,7 @@
 
 const https = require('https');
 
-const GEMINI_MODEL = 'gemini-1.5-flash';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_BASE = 'generativelanguage.googleapis.com';
 const GEMINI_PATH = `/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const REQUEST_TIMEOUT_MS = 15000;
