@@ -5,6 +5,16 @@ const nextConfig = {
     experimental: {
         serverComponentsExternalPackages: [],
     },
+    async redirects() {
+        return [
+            {
+                source: '/:path*',
+                has: [{ type: 'host', value: 'www.naadanaad.com' }],
+                destination: 'https://naadanaad.com/:path*',
+                permanent: true,
+            },
+        ];
+    },
 };
 
 export default nextConfig;

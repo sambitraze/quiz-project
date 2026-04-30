@@ -16,8 +16,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata = {
+  metadataBase: new URL('https://naadanaad.com'),
   title: "Quiz App - Learn and Test Your Knowledge",
   description: "An interactive quiz application for learning and testing knowledge with lessons, quizzes, and progress tracking.",
+  alternates: {
+    canonical: '/',
+  },
 };
 
 export default function RootLayout({ children }) {
