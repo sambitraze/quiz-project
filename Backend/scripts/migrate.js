@@ -1,10 +1,10 @@
 const { Pool } = require('pg');
 require('dotenv').config();
+const { getPoolConfig } = require('../config/poolConfig');
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-}); const createTables = async () => {
+const pool = new Pool(getPoolConfig());
+
+const createTables = async () => {
     const client = await pool.connect();
 
     try {

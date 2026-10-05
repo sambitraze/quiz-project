@@ -1,12 +1,11 @@
 const { Pool } = require('pg');
+const { getPoolConfig } = require('./poolConfig');
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+const pool = new Pool(getPoolConfig({
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
-});
+}));
 
 // Test database connection
 pool.on('connect', () => {
